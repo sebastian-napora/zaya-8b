@@ -6,6 +6,7 @@
 #   ./start.sh          # start both vLLM backend and LiteLLM proxy
 #   ./start.sh backend  # start only vLLM backend (11112)
 #   ./start.sh proxy    # start only LiteLLM proxy (11111)
+#   ./start_no_thinking.sh  # same stack, tool calling on, reasoning parser off
 #
 # Architecture:
 #   Copilot -> LiteLLM (11111) -> vLLM (11112)

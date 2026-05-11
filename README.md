@@ -23,6 +23,8 @@ GitHub Copilot (VS Code) -> LiteLLM (11111) -> vLLM (11112)
 | `zaya_token_tracker.py` | Per-request token usage tracker |
 | `lite_llm_config.yaml` | LiteLLM model routing config |
 | `start.sh` | Start vLLM + LiteLLM stack |
+| `start_no_thinking.sh` | Start vLLM stack with tool calling on and reasoning parser off |
+| `start_no_reasoning.sh` | Alias for `start_no_thinking.sh` |
 | `start_sglang.sh` | Start SGLang + LiteLLM stack |
 | `kill.sh` | Kill all serving processes |
 
@@ -50,6 +52,16 @@ To save logs without streaming them, run:
 ```bash
 ZAYA_STREAM_LOGS=0 ./start.sh both
 ```
+
+For Copilot/tool-calling sessions where reasoning output causes empty assistant
+messages, use the no-thinking launcher. It keeps `tool_choice: auto` enabled
+but disables the vLLM reasoning parser:
+
+```bash
+./start_no_thinking.sh both
+```
+
+`./start_no_reasoning.sh` is kept as an alias for the same mode.
 
 Useful log files:
 
@@ -107,10 +119,22 @@ OpenAI-compatible clients:
 | `ZAYA_REASONING_PARSER` | `qwen3` | Parser used for `reasoning_content` |
 | `ZAYA_CHAT_TEMPLATE` | unset | Optional custom/tool-use chat template |
 
+`zaya_server.py` verifies the requested tool parser at startup. If `zaya_xml`
+is not installed or cannot be patched for the active vLLM version, it falls
+back to another installed parser such as `qwen3_xml` or `hermes`; if none are
+available, startup fails with a clear message instead of silently serving a
+broken tool-call path.
+
 If Copilot returns a parser error, try a different parser without editing code:
 
 ```bash
 ZAYA_TOOL_CALL_PARSER=hermes ./start.sh both
+```
+
+For tool calling without thinking/reasoning output:
+
+```bash
+./start_no_thinking.sh both
 ```
 
 For plain chat testing with no auto tool parser:

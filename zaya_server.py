@@ -52,16 +52,30 @@ _venv_lib = os.path.join(os.path.dirname(__file__), "venv", "lib", "python3.12",
 if os.path.exists(_venv_lib) and _venv_lib not in sys.path:
     sys.path.insert(0, _venv_lib)
 
+def _get_tool_parser_manager():
+    try:
+        from vllm.tool_parsers import ToolParserManager
+    except ImportError:
+        from vllm.entrypoints.openai.tool_parsers import ToolParserManager
+    return ToolParserManager
+
+
+def _get_tool_parser_class(parser_name):
+    try:
+        manager = _get_tool_parser_manager()
+        return manager.get_tool_parser(parser_name)
+    except Exception as exc:
+        logger.warning("vLLM tool parser %r is not available: %s", parser_name, exc)
+        return None
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 def _patch_zaya_xml_tool_parser():
     """Adapt vLLM's ZAYA tool parser to newer parser constructor calls."""
     try:
-        try:
-            from vllm.tool_parsers import ToolParserManager
-        except ImportError:
-            from vllm.entrypoints.openai.tool_parsers import ToolParserManager
-
-        parser_cls = ToolParserManager.get_tool_parser("zaya_xml")
+        parser_cls = _get_tool_parser_class("zaya_xml")
+        if parser_cls is None:
+            return False
         init_sig = inspect.signature(parser_cls.__init__)
         accepts_varargs = any(
             p.kind == inspect.Parameter.VAR_POSITIONAL
@@ -94,6 +108,40 @@ def _patch_zaya_xml_tool_parser():
     except Exception:
         logger.exception("Unable to patch zaya_xml tool parser; falling back to another parser may be required")
         return False
+
+
+def _resolve_tool_call_parser(requested_parser, zaya_xml_parser_available):
+    if not requested_parser:
+        return ""
+
+    fallback_parsers = ["zaya_xml", "qwen3_xml", "hermes"]
+    candidates = [requested_parser]
+    if requested_parser == "zaya_xml" and not zaya_xml_parser_available:
+        candidates = []
+    candidates.extend(fallback_parsers)
+
+    seen = set()
+    for parser_name in candidates:
+        if not parser_name or parser_name in seen:
+            continue
+        seen.add(parser_name)
+        if parser_name == "zaya_xml" and not zaya_xml_parser_available:
+            continue
+        if _get_tool_parser_class(parser_name) is not None:
+            if parser_name != requested_parser:
+                logger.warning(
+                    "Using vLLM tool parser %r instead of requested parser %r",
+                    parser_name,
+                    requested_parser,
+                )
+            return parser_name
+
+    raise RuntimeError(
+        "Tool calling is enabled, but no supported vLLM tool parser was found. "
+        f"Tried: {', '.join(seen) or requested_parser}. "
+        "Set ZAYA_TOOL_CALL_PARSER to an installed parser, or set "
+        "ZAYA_ENABLE_AUTO_TOOL_CHOICE=0 for plain chat."
+    )
 
 
 async def main():
@@ -135,11 +183,8 @@ async def main():
     ENABLE_REASONING = os.environ.get("ZAYA_ENABLE_REASONING", "1") == "1"
     CHAT_TEMPLATE = os.environ.get("ZAYA_CHAT_TEMPLATE", "").strip()
 
-    if TOOL_CALL_PARSER == "zaya_xml" and not zaya_xml_parser_available:
-        logger.warning(
-            "ZAYA_TOOL_CALL_PARSER=zaya_xml is unavailable or could not be patched; remapping to qwen3_xml."
-        )
-        TOOL_CALL_PARSER = "qwen3_xml"
+    if ENABLE_AUTO_TOOL_CHOICE:
+        TOOL_CALL_PARSER = _resolve_tool_call_parser(TOOL_CALL_PARSER, zaya_xml_parser_available)
 
     logger.info(
         (
