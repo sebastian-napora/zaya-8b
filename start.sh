@@ -28,6 +28,10 @@ fi
 
 mkdir -p logs
 STREAM_LOGS="${ZAYA_STREAM_LOGS:-1}"
+BACKEND_HEALTH_URL="${ZAYA_BACKEND_HEALTH_URL:-http://localhost:11112/health}"
+BACKEND_WAIT_TIMEOUT="${ZAYA_BACKEND_WAIT_TIMEOUT:-900}"
+BACKEND_WAIT_INTERVAL="${ZAYA_BACKEND_WAIT_INTERVAL:-5}"
+SERVICE_PID=""
 
 start_service() {
     local label="$1"
@@ -43,12 +47,14 @@ start_service() {
         "$@" > "$logfile" 2>&1 &
     fi
 
-    echo "$label PID: $!"
+    SERVICE_PID=$!
+    echo "$label PID: $SERVICE_PID"
 }
 
 start_backend() {
     echo "🚀 Starting vLLM backend (port 11112)..."
     start_service "Backend" "$SCRIPT_DIR/logs/vllm_backend.log" "$VENV_PYTHON" zaya_server.py
+    BACKEND_PID="$SERVICE_PID"
 }
 
 new_token_session() {
@@ -71,14 +77,41 @@ start_proxy() {
     start_service "Proxy" "$SCRIPT_DIR/logs/lite_llm.log" "$VENV_PYTHON" server_compress.py
 }
 
+wait_for_backend() {
+    local elapsed=0
+
+    echo "⏳ Waiting for vLLM backend health: $BACKEND_HEALTH_URL"
+    echo "   Timeout: ${BACKEND_WAIT_TIMEOUT}s (ZAYA_BACKEND_WAIT_TIMEOUT to override)"
+
+    while [ "$elapsed" -lt "$BACKEND_WAIT_TIMEOUT" ]; do
+        if curl -fsS --max-time 2 "$BACKEND_HEALTH_URL" >/dev/null 2>&1; then
+            echo "✅ vLLM backend is healthy after ${elapsed}s"
+            return 0
+        fi
+
+        if [ -n "${BACKEND_PID:-}" ] && ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+            echo "❌ vLLM backend process exited before becoming healthy."
+            echo "   Check: $SCRIPT_DIR/logs/vllm_backend.log"
+            return 1
+        fi
+
+        sleep "$BACKEND_WAIT_INTERVAL"
+        elapsed=$((elapsed + BACKEND_WAIT_INTERVAL))
+        echo "   Still loading... ${elapsed}s elapsed"
+    done
+
+    echo "❌ Timed out waiting for vLLM backend after ${BACKEND_WAIT_TIMEOUT}s."
+    echo "   Keep watching this terminal or check: $SCRIPT_DIR/logs/vllm_backend.log"
+    echo "   Increase timeout with: ZAYA_BACKEND_WAIT_TIMEOUT=1800 ./start.sh both"
+    return 1
+}
+
 case "${1:-both}" in
     both)
         start_backend
         new_token_session
-        echo "Waiting 5s for backend to initialize..."
-        sleep 5
         start_stats
-        sleep 1
+        wait_for_backend
         start_proxy
         echo ""
         echo "✅ All services started:"
@@ -96,6 +129,7 @@ case "${1:-both}" in
         ;;
     proxy)
         new_token_session
+        wait_for_backend
         start_proxy
         ;;
     stats)

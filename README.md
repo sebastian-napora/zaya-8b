@@ -34,7 +34,18 @@ GitHub Copilot (VS Code) -> LiteLLM (11111) -> vLLM (11112)
 ```
 Service logs are written under `logs/`, especially `logs/vllm_backend.log`
 for model-load failures. By default, `./start.sh both` also streams service
-logs into the same terminal. To save logs without streaming them, run:
+logs into the same terminal.
+
+The vLLM backend can take several minutes to load weights and finish warmup.
+`start.sh both` waits for `http://localhost:11112/health` before starting
+LiteLLM, so the proxy does not accept requests while the backend is still
+loading. To wait longer than the default 900 seconds:
+
+```bash
+ZAYA_BACKEND_WAIT_TIMEOUT=1800 ./start.sh both
+```
+
+To save logs without streaming them, run:
 
 ```bash
 ZAYA_STREAM_LOGS=0 ./start.sh both
