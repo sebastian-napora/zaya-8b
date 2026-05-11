@@ -21,9 +21,9 @@ from zaya_logging import configure_logging, log_torch_cuda
 
 # Allow long max_model_len
 os.environ["VLLM_ALLOW_LONG_MAX_MODEL_LEN"] = "1"
-# Avoid accidentally selecting a flash-attn wheel compiled for the wrong GPU
-# architecture. Override with ZAYA_VLLM_ATTENTION_BACKEND if needed.
-os.environ.setdefault("VLLM_ATTENTION_BACKEND", os.environ.get("ZAYA_VLLM_ATTENTION_BACKEND", "FLASHINFER"))
+# DGX Spark / GB10 Blackwell can accidentally pick a flash-attn wheel compiled
+# for the wrong GPU architecture. Triton is slower but avoids that native crash.
+os.environ.setdefault("VLLM_ATTENTION_BACKEND", os.environ.get("ZAYA_VLLM_ATTENTION_BACKEND", "TRITON_ATTN"))
 
 # Setup logging
 logger = configure_logging("zaya_vllm", "vllm_detailed.log")
@@ -72,6 +72,11 @@ async def main():
     subparsers = parser.add_subparsers(dest="command")
     serve_parser = subparsers.add_parser("serve")
     serve_parser = make_arg_parser(serve_parser)
+    serve_option_strings = {
+        option
+        for action in serve_parser._actions
+        for option in getattr(action, "option_strings", [])
+    }
 
     # ── Env-configurable knobs ──────────────────────────────────────────────
     MAX_MODEL_LEN = os.environ.get("VLLM_MAX_MODEL_LEN", "131072")
@@ -104,6 +109,11 @@ async def main():
         "--tool-call-parser", "zaya_xml",
         "--reasoning-parser", "qwen3",
     ]
+    if "--attention-backend" in serve_option_strings:
+        argv += ["--attention-backend", ATTENTION_BACKEND]
+        logger.info("Passing vLLM CLI attention backend: %s", ATTENTION_BACKEND)
+    else:
+        logger.info("vLLM parser has no --attention-backend flag; using VLLM_ATTENTION_BACKEND env only")
 
     # ── Speculative decoding (N-gram / Prompt Lookup) ───────────────────────
     # Drafts tokens by matching n-grams from the input prompt.  No separate
