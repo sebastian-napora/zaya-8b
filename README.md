@@ -72,9 +72,18 @@ If startup prints `FATAL: FlashAttention requires building with sm version...`,
 the installed `flash-attn` wheel was built for the wrong GPU architecture.
 The vLLM backend defaults to `ZAYA_VLLM_ATTENTION_BACKEND=TRITON_ATTN` and
 `ZAYA_BLOCK_FLASH_ATTN=1` on DGX Spark / GB10 to avoid that package. The
-launcher exports this repo on `PYTHONPATH` so `sitecustomize.py` blocks
-`flash_attn` imports in worker processes too. Try another backend without
-editing code:
+launcher exports this repo on `PYTHONPATH` so `sitecustomize.py` hides
+`flash_attn` from worker processes too. It also defaults
+`TORCH_CUDA_ARCH_LIST=12.0f` and uses `/usr/local/cuda/bin/ptxas` for Triton
+when available.
+
+Inspect the CUDA/vLLM package stack with:
+
+```bash
+./start.sh diagnose
+```
+
+Try another backend without editing code:
 
 ```bash
 ZAYA_VLLM_ATTENTION_BACKEND=FLASHINFER ZAYA_BLOCK_FLASH_ATTN=0 ./start.sh both

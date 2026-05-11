@@ -37,6 +37,12 @@ ZAYA_BLOCK_FLASH_ATTN="${ZAYA_BLOCK_FLASH_ATTN:-1}"
 export ZAYA_BLOCK_FLASH_ATTN
 PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
+TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-12.0f}"
+export TORCH_CUDA_ARCH_LIST
+if [ -x "/usr/local/cuda/bin/ptxas" ]; then
+    TRITON_PTXAS_PATH="${TRITON_PTXAS_PATH:-/usr/local/cuda/bin/ptxas}"
+    export TRITON_PTXAS_PATH
+fi
 SERVICE_PID=""
 
 start_service() {
@@ -61,8 +67,18 @@ start_backend() {
     echo "🚀 Starting vLLM backend (port 11112)..."
     echo "   Attention backend: $ZAYA_VLLM_ATTENTION_BACKEND"
     echo "   Block flash-attn import: $ZAYA_BLOCK_FLASH_ATTN"
+    echo "   TORCH_CUDA_ARCH_LIST: $TORCH_CUDA_ARCH_LIST"
+    echo "   TRITON_PTXAS_PATH: ${TRITON_PTXAS_PATH:-not set}"
+    print_cuda_stack
     start_service "Backend" "$SCRIPT_DIR/logs/vllm_backend.log" "$VENV_PYTHON" zaya_server.py
     BACKEND_PID="$SERVICE_PID"
+}
+
+print_cuda_stack() {
+    echo "   CUDA/Python packages:"
+    "$VENV_PYTHON" -m pip list 2>/dev/null \
+        | awk 'BEGIN{IGNORECASE=1} /flash|flashinfer|vllm|torch|triton|cuda/ {print "     " $0}' \
+        || true
 }
 
 new_token_session() {
@@ -143,8 +159,27 @@ case "${1:-both}" in
     stats)
         start_stats
         ;;
+    diagnose)
+        echo "Python: $VENV_PYTHON"
+        echo "Attention backend: $ZAYA_VLLM_ATTENTION_BACKEND"
+        echo "Block flash-attn import: $ZAYA_BLOCK_FLASH_ATTN"
+        echo "TORCH_CUDA_ARCH_LIST: $TORCH_CUDA_ARCH_LIST"
+        echo "TRITON_PTXAS_PATH: ${TRITON_PTXAS_PATH:-not set}"
+        print_cuda_stack
+        "$VENV_PYTHON" - <<'PY'
+import importlib.util
+mods = [
+    "flash_attn", "flash_attn_2_cuda", "flash_attn_3_cuda",
+    "flash_attn_interface", "flash_attn_cuda",
+    "flashinfer", "vllm", "torch", "triton",
+]
+for name in mods:
+    spec = importlib.util.find_spec(name)
+    print(f"{name}: {spec.origin if spec else 'not found'}")
+PY
+        ;;
     *)
-        echo "Usage: $0 [both|backend|proxy|stats]"
+        echo "Usage: $0 [both|backend|proxy|stats|diagnose]"
         exit 1
         ;;
 esac
