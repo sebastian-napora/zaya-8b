@@ -1,0 +1,26 @@
+# ZAYA1-8B SGLang stack requirements
+# Hardware: NVIDIA GB10 (Blackwell, CC 12.1), CUDA 13.0, torch 2.11.0
+#
+# ⚠️  SGLang has its own llguidance version conflict with vLLM.
+#     Install in a separate venv from vLLM.
+#
+# Install:
+#   python3 -m venv venv_sglang
+#   source venv_sglang/bin/activate
+#   pip install -r requirements_sglang.txt
+
+# SGLang (EAGLE speculative decoding)
+# Install with cu130 flashinfer wheels:
+#   pip install "sglang[all]>=0.5.11" \
+#       --extra-index-url https://flashinfer.ai/whl/cu130/torch2.9/
+# On Blackwell (CC 12.x) flashinfer crashes under speculative decoding;
+# use --attention-backend triton --speculative-draft-attention-backend triton
+sglang[all]>=0.5.11
+
+# transformers is pinned by sglang; install from HF main for new model support:
+#   pip install git+https://github.com/huggingface/transformers.git
+transformers>=5.0.0
+
+# Utilities
+pypdf>=3.0.0
+aiohttp>=3.9.0

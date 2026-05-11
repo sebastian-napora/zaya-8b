@@ -1,0 +1,34 @@
+# ZAYA1-8B serving requirements
+# Hardware: NVIDIA GB10 (Blackwell, CC 12.1), CUDA 13.0, torch 2.11.0
+#
+# ⚠️  vLLM and SGLang have conflicting llguidance requirements and MUST be
+#     installed in separate virtual environments.
+#
+#     venv_vllm/  → vLLM + LiteLLM proxy
+#     venv_sglang/ → SGLang (EAGLE speculative decoding)
+#
+# Install vLLM stack:
+#   python3 -m venv venv_vllm
+#   source venv_vllm/bin/activate
+#   pip install -r requirements_vllm.txt
+#
+# Install SGLang stack:
+#   python3 -m venv venv_sglang
+#   source venv_sglang/bin/activate
+#   pip install -r requirements_sglang.txt
+
+# ── Core inference (vLLM stack) ─────────────────────────────────────────────
+# vLLM 0.20.1+ requires torch==2.11.0
+# Install from the official vLLM wheel index:
+#   pip install "vllm>=0.20.0" --extra-index-url https://wheels.vllm.ai/latest
+vllm>=0.20.0
+huggingface_hub>=0.20.0
+
+# ── Proxy / API layer ─────────────────────────────────────────────────────────
+litellm>=1.0.0
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+aiohttp>=3.9.0
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+pypdf>=3.0.0

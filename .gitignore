@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+venv_vllm/
+venv_sglang/
+.env/
+.venv/
+
+# Logs
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Git
+.git/
+
+# Xtread
+.xtread/
+
+# Model cache (symlink target, not copy)
+# HF cache is at ~/.cache/huggingface/hub/models--Zyphra--ZAYA1-8B

@@ -1,0 +1,22 @@
+# ZAYA1-8B vLLM-only stack requirements
+# Hardware: NVIDIA GB10 (Blackwell, CC 12.1), CUDA 13.0, torch 2.11.0
+#
+# Install:
+#   python3 -m venv venv_vllm
+#   source venv_vllm/bin/activate
+#   pip install -r requirements_vllm.txt
+
+# ZAYA1-8B requires Zyphra's vLLM fork (zaya1-pr branch) which adds
+# ZayaForCausalLM architecture support. Standard vLLM does not work.
+# This triggers a full build from source — takes ~20-30 min on first install.
+vllm @ git+https://github.com/Zyphra/vllm.git@zaya1-pr
+huggingface_hub>=0.20.0
+
+# Proxy / API layer
+litellm>=1.0.0
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+aiohttp>=3.9.0
+
+# Utilities
+pypdf>=3.0.0

@@ -1,0 +1,32 @@
+# LiteLLM Proxy Configuration for Zyphra/ZAYA1-8B
+#
+# Architecture:
+#   Copilot -> LiteLLM (11111) -> vLLM (11112)
+#
+# Start vLLM backend (11112):  python3 zaya_server.py
+# Start LiteLLM proxy (11111): python3 server_compress.py
+
+model_list:
+  - model_name: zaya1-8b
+    litellm_params:
+      model: openai/Zyphra/ZAYA1-8B
+      api_base: http://localhost:11112/v1
+      api_key: none
+      max_tokens: 60000
+      temperature: 0.7
+
+  - model_name: zaya
+    litellm_params:
+      model: openai/Zyphra/ZAYA1-8B
+      api_base: http://localhost:11112/v1
+      api_key: none
+      max_tokens: 60000
+      temperature: 0.7
+
+litellm_settings:
+  drop_params: true
+  request_timeout: 300
+  set_verbose: false
+
+general_settings:
+  completion_model: "zaya1-8b"
