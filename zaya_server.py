@@ -437,6 +437,86 @@ def _apply_behavior_guard(request):
     return True
 
 
+def _apply_thinking_budget(request):
+    """
+    Injects a thinking budget cap into chat_template_kwargs to prevent the model
+    from thinking indefinitely. Controlled by ZAYA_THINKING_BUDGET (default 8192,
+    set to 0 to disable). Only sets the budget if not already provided by the client.
+    """
+    raw = os.environ.get("ZAYA_THINKING_BUDGET", "8192").strip()
+    try:
+        budget = int(raw)
+    except ValueError:
+        return
+    if budget <= 0:
+        return
+
+    chat_tmpl_kwargs = _get_obj_field(request, "chat_template_kwargs", None)
+    if chat_tmpl_kwargs is None:
+        _set_obj_field(request, "chat_template_kwargs", {"thinking_budget": budget})
+    elif isinstance(chat_tmpl_kwargs, dict) and "thinking_budget" not in chat_tmpl_kwargs:
+        try:
+            chat_tmpl_kwargs["thinking_budget"] = budget
+        except Exception:
+            _set_obj_field(request, "chat_template_kwargs", {**chat_tmpl_kwargs, "thinking_budget": budget})
+
+
+def _inject_thinking_from_history(request):
+    """
+    Re-injects reasoning_content from assistant messages in the conversation history
+    back as <think>...</think> tags in the content field, so vLLM builds the correct
+    prompt context for multi-turn reasoning continuity.
+
+    This is necessary because Copilot/LiteLLM does not re-send reasoning_content in
+    subsequent turns, causing the model to lose its chain-of-thought context.
+    """
+    messages = getattr(request, "messages", None)
+    if not messages:
+        return 0
+
+    injected = 0
+    for msg in messages:
+        if _message_role(msg) != "assistant":
+            continue
+        reasoning = _get_obj_field(msg, "reasoning_content", None)
+        if not reasoning or not isinstance(reasoning, str):
+            continue
+        content = _message_content(msg) or ""
+        if "<think>" not in content:
+            _set_message_content(msg, f"<think>{reasoning}</think>{content}")
+            injected += 1
+    return injected
+
+
+def _preserve_thinking_in_response(result):
+    """
+    Re-injects reasoning_content into the content field as <think>...</think> on
+    non-streaming responses so the next turn's message history naturally includes
+    the thinking context (multi-turn reasoning preservation).
+
+    Without this, clients that don't understand reasoning_content (e.g., Copilot)
+    will not include the thinking in subsequent assistant messages, breaking the
+    model's chain-of-thought across turns.
+    """
+    choices = _get_obj_field(result, "choices", None)
+    if not choices:
+        return 0
+
+    preserved = 0
+    for choice in choices:
+        message = _get_obj_field(choice, "message", None)
+        if message is None:
+            continue
+        reasoning = _get_obj_field(message, "reasoning_content", None)
+        if not reasoning or not isinstance(reasoning, str):
+            continue
+        content = _get_obj_field(message, "content", None) or ""
+        if "<think>" not in content:
+            _set_obj_field(message, "content", f"<think>{reasoning}</think>{content}")
+            preserved += 1
+    return preserved
+
+
 async def main():
     logger.info("Importing vLLM OpenAI server entrypoints")
     from vllm.entrypoints.openai.api_server import (
@@ -654,6 +734,19 @@ async def main():
 
                 vllm_logger.info("=" * 80)
 
+                if ENABLE_REASONING:
+                    injected = _inject_thinking_from_history(request)
+                    if injected:
+                        vllm_logger.debug(
+                            "Re-injected reasoning_content into content for %d assistant message(s) in history",
+                            injected,
+                        )
+                    _apply_thinking_budget(request)
+                    vllm_logger.debug(
+                        "chat_template_kwargs after budget injection: %s",
+                        _get_obj_field(request, "chat_template_kwargs", None),
+                    )
+
                 try:
                     result = await original_create(request, raw_request, **kwargs)
                     recovered = _recover_leaked_tool_calls_in_response(result)
@@ -661,6 +754,13 @@ async def main():
                         vllm_logger.debug(
                             "Streaming response returned; leaked XML tool-call recovery is handled by parser hook only"
                         )
+                    if ENABLE_REASONING and not request.stream:
+                        preserved = _preserve_thinking_in_response(result)
+                        if preserved:
+                            vllm_logger.debug(
+                                "Preserved reasoning_content in content for %d choice(s) (multi-turn continuity)",
+                                preserved,
+                            )
                     vllm_logger.info("Request completed successfully")
                     return result
                 except Exception as e:
