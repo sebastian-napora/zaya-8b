@@ -46,6 +46,8 @@ ZAYA_REASONING_PARSER="${ZAYA_REASONING_PARSER:-qwen3}"
 export ZAYA_REASONING_PARSER
 ZAYA_CHAT_TEMPLATE="${ZAYA_CHAT_TEMPLATE:-}"
 export ZAYA_CHAT_TEMPLATE
+ZAYA_BEHAVIOR_GUARD="${ZAYA_BEHAVIOR_GUARD:-1}"
+export ZAYA_BEHAVIOR_GUARD
 PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-12.0f}"
@@ -82,6 +84,7 @@ start_backend() {
     echo "   Tool call parser: ${ZAYA_TOOL_CALL_PARSER:-disabled}"
     echo "   Reasoning parser: $([ "$ZAYA_ENABLE_REASONING" = "1" ] && echo "${ZAYA_REASONING_PARSER:-disabled}" || echo "disabled")"
     echo "   Chat template: ${ZAYA_CHAT_TEMPLATE:-model default}"
+    echo "   Behavior guard: $([ "$ZAYA_BEHAVIOR_GUARD" = "1" ] && echo "enabled" || echo "disabled")"
     echo "   TORCH_CUDA_ARCH_LIST: $TORCH_CUDA_ARCH_LIST"
     echo "   TRITON_PTXAS_PATH: ${TRITON_PTXAS_PATH:-not set}"
     print_cuda_stack
@@ -182,6 +185,7 @@ case "${1:-both}" in
         echo "Tool call parser: ${ZAYA_TOOL_CALL_PARSER:-disabled}"
         echo "Reasoning parser: $([ "$ZAYA_ENABLE_REASONING" = "1" ] && echo "${ZAYA_REASONING_PARSER:-disabled}" || echo "disabled")"
         echo "Chat template: ${ZAYA_CHAT_TEMPLATE:-model default}"
+        echo "Behavior guard: $([ "$ZAYA_BEHAVIOR_GUARD" = "1" ] && echo "enabled" || echo "disabled")"
         echo "TORCH_CUDA_ARCH_LIST: $TORCH_CUDA_ARCH_LIST"
         echo "TRITON_PTXAS_PATH: ${TRITON_PTXAS_PATH:-not set}"
         print_cuda_stack

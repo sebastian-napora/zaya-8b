@@ -118,6 +118,28 @@ OpenAI-compatible clients:
 | `ZAYA_ENABLE_REASONING` | `1` | Enables reasoning parser flags |
 | `ZAYA_REASONING_PARSER` | `qwen3` | Parser used for `reasoning_content` |
 | `ZAYA_CHAT_TEMPLATE` | unset | Optional custom/tool-use chat template |
+| `ZAYA_BEHAVIOR_GUARD` | `1` | Injects a focused system guard so the model handles the latest request narrowly |
+| `ZAYA_BEHAVIOR_GUARD_TEXT` | unset | Replaces the default behavior guard text |
+| `ZAYA_BEHAVIOR_GUARD_FILE` | unset | Reads behavior guard text from a local file |
+
+The behavior guard is designed for Copilot-style coding sessions. It tells the
+model to avoid broad, unrelated repository plans, make the smallest coherent
+change, verify it, and keep user-facing replies concise. Normal `./start.sh`
+keeps reasoning enabled, so the model can still think internally while the guard
+keeps that thinking scoped. Use `./start_no_thinking.sh` only if the reasoning
+parser itself causes empty or malformed tool-call responses.
+
+Disable the guard when you want freer brainstorming:
+
+```bash
+ZAYA_BEHAVIOR_GUARD=0 ./start.sh both
+```
+
+Use a custom stricter guard without editing code:
+
+```bash
+ZAYA_BEHAVIOR_GUARD_TEXT="Answer only the latest request. Stay scoped. Do not propose unrelated improvements." ./start.sh both
+```
 
 `zaya_server.py` verifies the requested tool parser at startup. If `zaya_xml`
 is not installed or cannot be patched for the active vLLM version, it falls

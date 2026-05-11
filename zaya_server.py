@@ -144,6 +144,107 @@ def _resolve_tool_call_parser(requested_parser, zaya_xml_parser_available):
     )
 
 
+BEHAVIOR_GUARD_MARKER = "[ZAYA behavior guard]"
+DEFAULT_BEHAVIOR_GUARD = f"""{BEHAVIOR_GUARD_MARKER}
+You are a focused coding assistant operating inside one local repository.
+Interpret the user's latest request narrowly and stay within the requested scope.
+Do not turn a small request into a broad repository improvement plan unless the
+user explicitly asks for broad planning, review, or architecture work.
+For coding tasks, inspect the relevant local files, make the smallest coherent
+change, and verify it. If the request is ambiguous, choose the conservative
+local fix or ask one short clarifying question.
+Use private reasoning to choose the right next action, but keep that reasoning
+scoped to the latest request and the files directly involved.
+Use tools when they help, but do not narrate a long tool-use plan before acting.
+In user-facing replies, provide concise rationale, concrete changes, and test
+results. Do not expose private chain-of-thought or lengthy hidden reasoning."""
+
+
+def _env_flag(name, default="0"):
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_behavior_guard_text():
+    if not _env_flag("ZAYA_BEHAVIOR_GUARD", "1"):
+        return ""
+
+    guard_file = os.environ.get("ZAYA_BEHAVIOR_GUARD_FILE", "").strip()
+    if guard_file:
+        try:
+            with open(guard_file, "r", encoding="utf-8") as f:
+                text = f.read().strip()
+            return text or DEFAULT_BEHAVIOR_GUARD
+        except Exception:
+            logger.exception("Failed to read ZAYA_BEHAVIOR_GUARD_FILE=%s; using default guard", guard_file)
+
+    return os.environ.get("ZAYA_BEHAVIOR_GUARD_TEXT", DEFAULT_BEHAVIOR_GUARD).strip()
+
+
+def _message_role(msg):
+    return msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+
+
+def _message_content(msg):
+    return msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+
+
+def _set_message_content(msg, content):
+    if isinstance(msg, dict):
+        msg["content"] = content
+        return True
+    try:
+        setattr(msg, "content", content)
+        return True
+    except Exception:
+        return False
+
+
+def _content_contains_guard(content):
+    if isinstance(content, str):
+        return BEHAVIOR_GUARD_MARKER in content
+    if isinstance(content, list):
+        return any(
+            isinstance(part, dict)
+            and part.get("type") == "text"
+            and BEHAVIOR_GUARD_MARKER in str(part.get("text", ""))
+            for part in content
+        )
+    return False
+
+
+def _merge_guard_content(guard_text, content):
+    if content is None:
+        return guard_text
+    if isinstance(content, str):
+        return f"{guard_text}\n\n{content}"
+    if isinstance(content, list):
+        return [{"type": "text", "text": guard_text}, *content]
+    return f"{guard_text}\n\n{content}"
+
+
+def _apply_behavior_guard(request):
+    guard_text = _get_behavior_guard_text()
+    if not guard_text:
+        return False
+
+    messages = getattr(request, "messages", None)
+    if not messages:
+        return False
+
+    for msg in messages:
+        if _message_role(msg) != "system":
+            continue
+        content = _message_content(msg)
+        if _content_contains_guard(content):
+            return False
+        if _set_message_content(msg, _merge_guard_content(guard_text, content)):
+            return True
+        break
+
+    messages.insert(0, {"role": "system", "content": guard_text})
+    return True
+
+
 async def main():
     logger.info("Importing vLLM OpenAI server entrypoints")
     from vllm.entrypoints.openai.api_server import (
@@ -182,6 +283,7 @@ async def main():
     REASONING_PARSER = os.environ.get("ZAYA_REASONING_PARSER", "qwen3").strip()
     ENABLE_REASONING = os.environ.get("ZAYA_ENABLE_REASONING", "1") == "1"
     CHAT_TEMPLATE = os.environ.get("ZAYA_CHAT_TEMPLATE", "").strip()
+    BEHAVIOR_GUARD_ENABLED = _env_flag("ZAYA_BEHAVIOR_GUARD", "1")
 
     if ENABLE_AUTO_TOOL_CHOICE:
         TOOL_CALL_PARSER = _resolve_tool_call_parser(TOOL_CALL_PARSER, zaya_xml_parser_available)
@@ -202,6 +304,10 @@ async def main():
         ENABLE_REASONING,
         REASONING_PARSER or "disabled",
         CHAT_TEMPLATE or "model default",
+    )
+    logger.info(
+        "Behavior guard %s; override with ZAYA_BEHAVIOR_GUARD_TEXT or ZAYA_BEHAVIOR_GUARD_FILE",
+        "enabled" if BEHAVIOR_GUARD_ENABLED else "disabled",
     )
 
     argv = [
@@ -306,14 +412,16 @@ async def main():
 
             serving_chat: OpenAIServingChat = app.state.openai_serving_chat
 
-            # Wrap the original method to log all requests
+            # Wrap the original method to log and normalize all requests.
             original_create = serving_chat.create_chat_completion
 
             async def logged_create_chat_completion(request: ChatCompletionRequest, raw_request: Request = None, **kwargs):
+                guard_applied = _apply_behavior_guard(request)
                 vllm_logger.info("=" * 80)
                 vllm_logger.info("/v1/chat/completions request received")
                 vllm_logger.info("Model: %s", request.model)
                 vllm_logger.info("Stream: %s", request.stream)
+                vllm_logger.info("Behavior guard: %s", "applied" if guard_applied else ("enabled" if BEHAVIOR_GUARD_ENABLED else "disabled"))
                 vllm_logger.info("Message count: %d", len(request.messages))
 
                 for i, msg in enumerate(request.messages):
