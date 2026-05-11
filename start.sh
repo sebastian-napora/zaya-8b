@@ -27,12 +27,28 @@ else
 fi
 
 mkdir -p logs
+STREAM_LOGS="${ZAYA_STREAM_LOGS:-1}"
+
+start_service() {
+    local label="$1"
+    local logfile="$2"
+    shift 2
+
+    : > "$logfile"
+    if [ "$STREAM_LOGS" = "1" ]; then
+        echo "   Streaming logs here and saving to: $logfile"
+        "$@" > >(tee -a "$logfile") 2>&1 &
+    else
+        echo "   Logs: $logfile"
+        "$@" > "$logfile" 2>&1 &
+    fi
+
+    echo "$label PID: $!"
+}
 
 start_backend() {
     echo "🚀 Starting vLLM backend (port 11112)..."
-    "$VENV_PYTHON" zaya_server.py > "$SCRIPT_DIR/logs/vllm_backend.log" 2>&1 &
-    echo "Backend PID: $!"
-    echo "   Logs: $SCRIPT_DIR/logs/vllm_backend.log"
+    start_service "Backend" "$SCRIPT_DIR/logs/vllm_backend.log" "$VENV_PYTHON" zaya_server.py
 }
 
 new_token_session() {
@@ -47,16 +63,12 @@ print(sid, end='')
 
 start_stats() {
     echo "🚀 Starting token stats server (port 11113)..."
-    "$VENV_PYTHON" "$SCRIPT_DIR/zaya_token_tracker.py" > "$SCRIPT_DIR/logs/token_stats.log" 2>&1 &
-    echo "Stats PID: $!"
-    echo "   Logs: $SCRIPT_DIR/logs/token_stats.log"
+    start_service "Stats" "$SCRIPT_DIR/logs/token_stats.log" "$VENV_PYTHON" "$SCRIPT_DIR/zaya_token_tracker.py"
 }
 
 start_proxy() {
     echo "🚀 Starting LiteLLM proxy (port 11111)..."
-    "$VENV_PYTHON" server_compress.py > "$SCRIPT_DIR/logs/lite_llm.log" 2>&1 &
-    echo "Proxy PID: $!"
-    echo "   Logs: $SCRIPT_DIR/logs/lite_llm.log"
+    start_service "Proxy" "$SCRIPT_DIR/logs/lite_llm.log" "$VENV_PYTHON" server_compress.py
 }
 
 case "${1:-both}" in
@@ -73,6 +85,7 @@ case "${1:-both}" in
         echo "   vLLM backend:   http://0.0.0.0:11112"
         echo "   LiteLLM proxy:  http://0.0.0.0:11111"
         echo "   Token stats:    http://0.0.0.0:11113"
+        echo "   Terminal logs:  $([ "$STREAM_LOGS" = "1" ] && echo "enabled" || echo "disabled")"
         echo ""
         echo "Test with:"
         echo "  curl http://localhost:11112/health"

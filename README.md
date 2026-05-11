@@ -33,7 +33,12 @@ GitHub Copilot (VS Code) -> LiteLLM (11111) -> vLLM (11112)
 ./start.sh both
 ```
 Service logs are written under `logs/`, especially `logs/vllm_backend.log`
-for model-load failures.
+for model-load failures. By default, `./start.sh both` also streams service
+logs into the same terminal. To save logs without streaming them, run:
+
+```bash
+ZAYA_STREAM_LOGS=0 ./start.sh both
+```
 
 Useful log files:
 
