@@ -89,6 +89,36 @@ Try another backend without editing code:
 ZAYA_VLLM_ATTENTION_BACKEND=FLASHINFER ZAYA_BLOCK_FLASH_ATTN=0 ./start.sh both
 ```
 
+### Reasoning and tool calling
+
+This setup serves ZAYA with vLLM reasoning output parsing enabled by default:
+`ZAYA_ENABLE_REASONING=1` and `ZAYA_REASONING_PARSER=qwen3`. That means
+responses can expose a `reasoning_content` field when the model/template emits
+thinking-style output.
+
+Automatic tool choice is also enabled by default for Copilot and other
+OpenAI-compatible clients:
+
+| Env var | Default | Notes |
+|---|---|---|
+| `ZAYA_ENABLE_AUTO_TOOL_CHOICE` | `1` | Enables `tool_choice: auto` support |
+| `ZAYA_TOOL_CALL_PARSER` | `qwen3_xml` | Avoids the broken `zaya_xml` parser on current vLLM builds |
+| `ZAYA_ENABLE_REASONING` | `1` | Enables reasoning parser flags |
+| `ZAYA_REASONING_PARSER` | `qwen3` | Parser used for `reasoning_content` |
+| `ZAYA_CHAT_TEMPLATE` | unset | Optional custom/tool-use chat template |
+
+If Copilot returns a parser error, try a different parser without editing code:
+
+```bash
+ZAYA_TOOL_CALL_PARSER=hermes ./start.sh both
+```
+
+For plain chat testing with no auto tool parser:
+
+```bash
+ZAYA_ENABLE_AUTO_TOOL_CHOICE=0 ./start.sh both
+```
+
 ### SGLang backend (EAGLE speculative decoding)
 ```bash
 ./start_sglang.sh both

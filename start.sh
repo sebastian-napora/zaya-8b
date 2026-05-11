@@ -35,6 +35,16 @@ ZAYA_VLLM_ATTENTION_BACKEND="${ZAYA_VLLM_ATTENTION_BACKEND:-TRITON_ATTN}"
 export ZAYA_VLLM_ATTENTION_BACKEND
 ZAYA_BLOCK_FLASH_ATTN="${ZAYA_BLOCK_FLASH_ATTN:-1}"
 export ZAYA_BLOCK_FLASH_ATTN
+ZAYA_ENABLE_AUTO_TOOL_CHOICE="${ZAYA_ENABLE_AUTO_TOOL_CHOICE:-1}"
+export ZAYA_ENABLE_AUTO_TOOL_CHOICE
+ZAYA_TOOL_CALL_PARSER="${ZAYA_TOOL_CALL_PARSER:-qwen3_xml}"
+export ZAYA_TOOL_CALL_PARSER
+ZAYA_ENABLE_REASONING="${ZAYA_ENABLE_REASONING:-1}"
+export ZAYA_ENABLE_REASONING
+ZAYA_REASONING_PARSER="${ZAYA_REASONING_PARSER:-qwen3}"
+export ZAYA_REASONING_PARSER
+ZAYA_CHAT_TEMPLATE="${ZAYA_CHAT_TEMPLATE:-}"
+export ZAYA_CHAT_TEMPLATE
 PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-12.0f}"
@@ -67,6 +77,10 @@ start_backend() {
     echo "🚀 Starting vLLM backend (port 11112)..."
     echo "   Attention backend: $ZAYA_VLLM_ATTENTION_BACKEND"
     echo "   Block flash-attn import: $ZAYA_BLOCK_FLASH_ATTN"
+    echo "   Auto tool choice: $ZAYA_ENABLE_AUTO_TOOL_CHOICE"
+    echo "   Tool call parser: ${ZAYA_TOOL_CALL_PARSER:-disabled}"
+    echo "   Reasoning parser: $([ "$ZAYA_ENABLE_REASONING" = "1" ] && echo "${ZAYA_REASONING_PARSER:-disabled}" || echo "disabled")"
+    echo "   Chat template: ${ZAYA_CHAT_TEMPLATE:-model default}"
     echo "   TORCH_CUDA_ARCH_LIST: $TORCH_CUDA_ARCH_LIST"
     echo "   TRITON_PTXAS_PATH: ${TRITON_PTXAS_PATH:-not set}"
     print_cuda_stack
@@ -163,6 +177,10 @@ case "${1:-both}" in
         echo "Python: $VENV_PYTHON"
         echo "Attention backend: $ZAYA_VLLM_ATTENTION_BACKEND"
         echo "Block flash-attn import: $ZAYA_BLOCK_FLASH_ATTN"
+        echo "Auto tool choice: $ZAYA_ENABLE_AUTO_TOOL_CHOICE"
+        echo "Tool call parser: ${ZAYA_TOOL_CALL_PARSER:-disabled}"
+        echo "Reasoning parser: $([ "$ZAYA_ENABLE_REASONING" = "1" ] && echo "${ZAYA_REASONING_PARSER:-disabled}" || echo "disabled")"
+        echo "Chat template: ${ZAYA_CHAT_TEMPLATE:-model default}"
         echo "TORCH_CUDA_ARCH_LIST: $TORCH_CUDA_ARCH_LIST"
         echo "TRITON_PTXAS_PATH: ${TRITON_PTXAS_PATH:-not set}"
         print_cuda_stack

@@ -84,13 +84,27 @@ async def main():
     OPT_LEVEL     = os.environ.get("VLLM_OPT_LEVEL",      "1")
     MODEL_NAME    = os.environ.get("ZAYA_MODEL",          "Zyphra/ZAYA1-8B")
     ATTENTION_BACKEND = os.environ.get("VLLM_ATTENTION_BACKEND", "auto")
+    ENABLE_AUTO_TOOL_CHOICE = os.environ.get("ZAYA_ENABLE_AUTO_TOOL_CHOICE", "1") == "1"
+    TOOL_CALL_PARSER = os.environ.get("ZAYA_TOOL_CALL_PARSER", "qwen3_xml").strip()
+    REASONING_PARSER = os.environ.get("ZAYA_REASONING_PARSER", "qwen3").strip()
+    ENABLE_REASONING = os.environ.get("ZAYA_ENABLE_REASONING", "1") == "1"
+    CHAT_TEMPLATE = os.environ.get("ZAYA_CHAT_TEMPLATE", "").strip()
     logger.info(
-        "Resolved backend config model=%s max_model_len=%s gpu_memory_utilization=%s optimization_level=%s attention_backend=%s",
+        (
+            "Resolved backend config model=%s max_model_len=%s gpu_memory_utilization=%s "
+            "optimization_level=%s attention_backend=%s auto_tools=%s tool_parser=%s "
+            "reasoning=%s reasoning_parser=%s chat_template=%s"
+        ),
         MODEL_NAME,
         MAX_MODEL_LEN,
         GPU_MEM_UTIL,
         OPT_LEVEL,
         ATTENTION_BACKEND,
+        ENABLE_AUTO_TOOL_CHOICE,
+        TOOL_CALL_PARSER or "disabled",
+        ENABLE_REASONING,
+        REASONING_PARSER or "disabled",
+        CHAT_TEMPLATE or "model default",
     )
 
     argv = [
@@ -105,10 +119,32 @@ async def main():
         "--optimization-level", OPT_LEVEL,
         "--port", "11112",
         "--host", "0.0.0.0",
-        "--enable-auto-tool-choice",
-        "--tool-call-parser", "zaya_xml",
-        "--reasoning-parser", "qwen3",
     ]
+
+    if ENABLE_AUTO_TOOL_CHOICE:
+        argv += ["--enable-auto-tool-choice"]
+        if TOOL_CALL_PARSER:
+            argv += ["--tool-call-parser", TOOL_CALL_PARSER]
+        else:
+            logger.warning("Auto tool choice enabled but ZAYA_TOOL_CALL_PARSER is empty")
+    else:
+        logger.info("Auto tool choice disabled by ZAYA_ENABLE_AUTO_TOOL_CHOICE=0")
+
+    if ENABLE_REASONING:
+        if "--enable-reasoning" in serve_option_strings:
+            argv += ["--enable-reasoning"]
+        if REASONING_PARSER:
+            argv += ["--reasoning-parser", REASONING_PARSER]
+        else:
+            logger.warning("Reasoning enabled but ZAYA_REASONING_PARSER is empty")
+    else:
+        logger.info("Reasoning parser disabled by ZAYA_ENABLE_REASONING=0")
+
+    if CHAT_TEMPLATE and "--chat-template" in serve_option_strings:
+        argv += ["--chat-template", CHAT_TEMPLATE]
+    elif CHAT_TEMPLATE:
+        logger.warning("Ignoring ZAYA_CHAT_TEMPLATE=%s because this vLLM parser has no --chat-template flag", CHAT_TEMPLATE)
+
     if "--attention-backend" in serve_option_strings:
         argv += ["--attention-backend", ATTENTION_BACKEND]
         logger.info("Passing vLLM CLI attention backend: %s", ATTENTION_BACKEND)
