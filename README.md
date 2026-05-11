@@ -35,6 +35,23 @@ GitHub Copilot (VS Code) -> LiteLLM (11111) -> vLLM (11112)
 Service logs are written under `logs/`, especially `logs/vllm_backend.log`
 for model-load failures.
 
+Useful log files:
+
+| File | Contents |
+|---|---|
+| `logs/vllm_backend.log` | stdout/stderr from the vLLM backend process |
+| `logs/vllm_detailed.log` | structured Python/vLLM/transformers/HF/uvicorn logs |
+| `logs/vllm_requests.log` | backend chat request summaries and request errors |
+| `logs/lite_llm.log` | stdout/stderr from the LiteLLM proxy process |
+| `logs/litellm_detailed.log` | structured LiteLLM/proxy/uvicorn logs |
+| `logs/litellm_requests.log` | proxy request logger |
+| `logs/token_stats.json` | current token usage totals |
+| `logs/token_requests.jsonl` | per-request token usage and failures |
+| `logs/*_faulthandler.log` | Python crash dumps for hard failures |
+
+Set `ZAYA_LOG_LEVEL=INFO` for quieter logs, or leave the default `DEBUG`
+while diagnosing startup and model-load issues.
+
 ### SGLang backend (EAGLE speculative decoding)
 ```bash
 ./start_sglang.sh both

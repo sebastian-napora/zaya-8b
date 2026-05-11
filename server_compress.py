@@ -18,53 +18,44 @@ Usage:
 import os
 import logging
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 
-import litellm
+from zaya_logging import configure_logging
 
-import zaya_token_tracker  # noqa: F401 — records per-request token usage
-zaya_token_tracker.register()
-
-# Setup detailed logging
+logger = configure_logging("zaya_litellm", "litellm_detailed.log")
 LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
-os.makedirs(LOG_DIR, exist_ok=True)
-LOG_LEVEL = os.environ.get("ZAYA_LOG_LEVEL", "INFO").upper()
-LOG_LEVEL_VALUE = getattr(logging, LOG_LEVEL, logging.INFO)
-
-# Create dedicated logger for image requests
-litellm_logger = logging.getLogger("litellm.image_request")
-litellm_logger.setLevel(logging.DEBUG)
-fh = logging.FileHandler(os.path.join(LOG_DIR, "litellm_image_requests.log"))
-fh.setLevel(logging.DEBUG)
-fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(message)s"))
-litellm_logger.addHandler(fh)
-
-# Also log to console
-ch = logging.StreamHandler()
-ch.setLevel(LOG_LEVEL_VALUE)
-ch.setFormatter(logging.Formatter("%(asctime)s %(name)-25s %(levelname)-8s %(message)s"))
-litellm_logger.addHandler(ch)
-
-litellm_logger.info("=" * 60)
-litellm_logger.info("LiteLLM ZAYA1-8B Proxy Started")
-
-# Enable request logging without defaulting to noisy debug output.
+LOG_LEVEL = os.environ.get("ZAYA_LOG_LEVEL", "DEBUG").upper()
+LOG_LEVEL_VALUE = getattr(logging, LOG_LEVEL, logging.DEBUG)
 os.environ.setdefault("LITELLM_LOG", LOG_LEVEL)
 os.environ["LITELLM_REQUEST_LOGGING"] = "true"
 
-logging.basicConfig(
-    level=LOG_LEVEL_VALUE,
-    format="%(asctime)s %(name)-25s %(levelname)-8s %(message)s",
-    handlers=[
-        logging.FileHandler(os.path.join(LOG_DIR, "litellm_detailed.log")),
-        logging.StreamHandler()
-    ]
+logger.info("Importing LiteLLM")
+import litellm
+logger.info("LiteLLM imported")
+
+logger.info("Registering token tracker callback")
+import zaya_token_tracker  # noqa: F401 — records per-request token usage
+zaya_token_tracker.register()
+logger.info("Token tracker callback registered")
+
+# Create dedicated logger for image requests
+litellm_logger = logging.getLogger("zaya.litellm.requests")
+litellm_logger.setLevel(logging.DEBUG)
+fh = RotatingFileHandler(
+    os.path.join(LOG_DIR, "litellm_requests.log"),
+    maxBytes=int(os.environ.get("ZAYA_LOG_MAX_BYTES", "52428800")),
+    backupCount=int(os.environ.get("ZAYA_LOG_BACKUPS", "5")),
 )
+fh.setLevel(logging.DEBUG)
+fh.setFormatter(logging.Formatter("%(asctime)s %(process)d %(name)-28s %(levelname)-8s %(message)s"))
+litellm_logger.addHandler(fh)
+
+litellm_logger.info("=" * 80)
+litellm_logger.info("LiteLLM ZAYA1-8B Proxy Started")
 
 # Keep LiteLLM console logging at the configured level.
 litellm_main_logger = logging.getLogger("litellm")
 litellm_main_logger.setLevel(LOG_LEVEL_VALUE)
-
-logger = logging.getLogger("server_compress")
 
 LITELLM_PORT = os.environ.get("LITE_LLM_PROXY_PORT", "11111")
 LITELLM_HOST = os.environ.get("LITE_LLM_PROXY_HOST", "0.0.0.0")
@@ -88,12 +79,21 @@ logger.info("Registered custom callbacks: %d", len(registered_callbacks))
 for cb in registered_callbacks:
     logger.info("  - %s", type(cb).__name__)
 
-if __name__ == "__main__":
+def main():
     import uvicorn
-    uvicorn.run(
-        "litellm.proxy.proxy_server:app",
-        host=LITELLM_HOST,
-        port=int(LITELLM_PORT),
-        reload=False,
-        log_level=LOG_LEVEL.lower(),
-    )
+    logger.info("Starting uvicorn for LiteLLM proxy")
+    try:
+        uvicorn.run(
+            "litellm.proxy.proxy_server:app",
+            host=LITELLM_HOST,
+            port=int(LITELLM_PORT),
+            reload=False,
+            log_level=LOG_LEVEL.lower(),
+        )
+    except Exception:
+        logger.exception("LiteLLM proxy exited with a fatal error")
+        raise
+
+
+if __name__ == "__main__":
+    main()

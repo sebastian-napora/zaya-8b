@@ -11,14 +11,17 @@ import json
 import time
 import threading
 import uuid
+import logging
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
 from typing import Optional
 
-LOG_DIR = Path(__file__).parent.parent / "logs"
+LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 STATS_FILE = LOG_DIR / "token_stats.json"
+REQUEST_LOG_FILE = LOG_DIR / "token_requests.jsonl"
+logger = logging.getLogger("zaya.token_tracker")
 
 _session_id: str = ""
 _lock = threading.Lock()
@@ -27,6 +30,17 @@ _request_counts: dict = defaultdict(int)
 _model_stats: dict = defaultdict(lambda: {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "requests": 0})
 
 _current_session_file = LOG_DIR / ".current_session"
+
+
+def _write_stats_locked() -> None:
+    payload = {
+        "session": get_session(),
+        "updated_at": datetime.now().isoformat(),
+        "cumulative": dict(_stats),
+        "by_model": {model: dict(stats) for model, stats in _model_stats.items()},
+        "request_counts": dict(_request_counts),
+    }
+    STATS_FILE.write_text(json.dumps(payload, indent=2))
 
 
 def new_session() -> str:
@@ -38,6 +52,8 @@ def new_session() -> str:
         _request_counts.clear()
         _model_stats.clear()
         _current_session_file.write_text(_session_id)
+        _write_stats_locked()
+        logger.info("Created token stats session %s", _session_id)
         return _session_id
 
 
@@ -74,8 +90,10 @@ class TokenTracker:
             _stats["prompt_tokens"] += prompt_tokens
             _stats["completion_tokens"] += completion_tokens
             _request_counts[model] += 1
+            _write_stats_locked()
 
         entry = {
+            "event": "success",
             "session": get_session(),
             "ts": datetime.now().isoformat(),
             "model": model,
@@ -84,12 +102,36 @@ class TokenTracker:
             "total_tokens": total_tokens,
             "latency_ms": round(ms, 1),
         }
-        stats_log = LOG_DIR / "token_requests.jsonl"
-        with open(stats_log, "a") as f:
+        with open(REQUEST_LOG_FILE, "a") as f:
             f.write(json.dumps(entry) + "\n")
+        logger.info(
+            "Token usage model=%s prompt=%s completion=%s total=%s latency_ms=%.1f",
+            model,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            ms,
+        )
 
     def log_failure_event(self, kwargs, response_obj, start_time, end_time):
-        pass
+        model = kwargs.get("model", "unknown")
+        ms = (end_time - start_time) * 1000
+        error = str(response_obj) if response_obj is not None else "unknown"
+        entry = {
+            "event": "failure",
+            "session": get_session(),
+            "ts": datetime.now().isoformat(),
+            "model": model,
+            "latency_ms": round(ms, 1),
+            "error": error,
+        }
+        with _lock:
+            _stats["failures"] += 1
+            _request_counts[f"{model}:failures"] += 1
+            _write_stats_locked()
+        with open(REQUEST_LOG_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+        logger.error("LiteLLM request failed model=%s latency_ms=%.1f error=%s", model, ms, error)
 
 
 _tracker = TokenTracker()
@@ -140,13 +182,16 @@ def start_stats_server(port: int = 11113):
                 self.end_headers()
 
         def log_message(self, *_):
-            pass
+            logger.debug("Token stats HTTP request: %s", " ".join(str(x) for x in _))
 
+    logger.info("Token stats server listening on 0.0.0.0:%s", port)
     HTTPServer(("0.0.0.0", port), _Handler).serve_forever()
 
 
 if __name__ == "__main__":
     import sys
+    from zaya_logging import configure_logging
+    configure_logging("zaya_token_stats", "token_stats_server.log")
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 11113
     print(f"📊 Token stats server starting on port {port}…")
     start_stats_server(port)
