@@ -15,6 +15,7 @@ import sys
 import os
 import logging
 import traceback
+import inspect
 from logging.handlers import RotatingFileHandler
 
 from zaya_logging import configure_logging, log_torch_cuda
@@ -52,6 +53,49 @@ if os.path.exists(_venv_lib) and _venv_lib not in sys.path:
     sys.path.insert(0, _venv_lib)
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
+def _patch_zaya_xml_tool_parser():
+    """Adapt vLLM's ZAYA tool parser to newer parser constructor calls."""
+    try:
+        try:
+            from vllm.tool_parsers import ToolParserManager
+        except ImportError:
+            from vllm.entrypoints.openai.tool_parsers import ToolParserManager
+
+        parser_cls = ToolParserManager.get_tool_parser("zaya_xml")
+        init_sig = inspect.signature(parser_cls.__init__)
+        accepts_varargs = any(
+            p.kind == inspect.Parameter.VAR_POSITIONAL
+            for p in init_sig.parameters.values()
+        )
+        if accepts_varargs or len(init_sig.parameters) >= 3:
+            logger.info("zaya_xml tool parser already accepts tokenizer and tools")
+            return True
+
+        original_init = parser_cls.__init__
+
+        def patched_init(self, tokenizer, tools=None):
+            original_init(self, tokenizer)
+            if tools is None:
+                return
+            self.tools = tools
+            parser = getattr(self, "parser", None)
+            if hasattr(parser, "set_tools"):
+                parser.set_tools(tools)
+            if hasattr(self, "set_tools"):
+                self.set_tools(tools)
+
+        parser_cls.__init__ = patched_init
+        parser_cls._zaya_constructor_patch = True
+        logger.warning(
+            "Patched zaya_xml tool parser constructor to accept tokenizer, tools. "
+            "This keeps native <zyphra_tool_call> markup from leaking into content."
+        )
+        return True
+    except Exception:
+        logger.exception("Unable to patch zaya_xml tool parser; falling back to another parser may be required")
+        return False
+
+
 async def main():
     logger.info("Importing vLLM OpenAI server entrypoints")
     from vllm.entrypoints.openai.api_server import (
@@ -65,6 +109,7 @@ async def main():
     from vllm.utils.argparse_utils import FlexibleArgumentParser
     logger.info("vLLM imports completed")
     log_torch_cuda(logger)
+    zaya_xml_parser_available = _patch_zaya_xml_tool_parser()
 
     # ── Build vLLM args ─────────────────────────────────────────────────────────
     logger.info("Building vLLM serve argument parser")
@@ -85,10 +130,17 @@ async def main():
     MODEL_NAME    = os.environ.get("ZAYA_MODEL",          "Zyphra/ZAYA1-8B")
     ATTENTION_BACKEND = os.environ.get("VLLM_ATTENTION_BACKEND", "auto")
     ENABLE_AUTO_TOOL_CHOICE = os.environ.get("ZAYA_ENABLE_AUTO_TOOL_CHOICE", "1") == "1"
-    TOOL_CALL_PARSER = os.environ.get("ZAYA_TOOL_CALL_PARSER", "qwen3_xml").strip()
+    TOOL_CALL_PARSER = os.environ.get("ZAYA_TOOL_CALL_PARSER", "zaya_xml").strip()
     REASONING_PARSER = os.environ.get("ZAYA_REASONING_PARSER", "qwen3").strip()
     ENABLE_REASONING = os.environ.get("ZAYA_ENABLE_REASONING", "1") == "1"
     CHAT_TEMPLATE = os.environ.get("ZAYA_CHAT_TEMPLATE", "").strip()
+
+    if TOOL_CALL_PARSER == "zaya_xml" and not zaya_xml_parser_available:
+        logger.warning(
+            "ZAYA_TOOL_CALL_PARSER=zaya_xml is unavailable or could not be patched; remapping to qwen3_xml."
+        )
+        TOOL_CALL_PARSER = "qwen3_xml"
+
     logger.info(
         (
             "Resolved backend config model=%s max_model_len=%s gpu_memory_utilization=%s "

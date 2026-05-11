@@ -102,7 +102,7 @@ OpenAI-compatible clients:
 | Env var | Default | Notes |
 |---|---|---|
 | `ZAYA_ENABLE_AUTO_TOOL_CHOICE` | `1` | Enables `tool_choice: auto` support |
-| `ZAYA_TOOL_CALL_PARSER` | `qwen3_xml` | Avoids the broken `zaya_xml` parser on current vLLM builds |
+| `ZAYA_TOOL_CALL_PARSER` | `zaya_xml` | Native parser for ZAYA's `<zyphra_tool_call>` markup; startup patches its constructor for newer vLLM builds |
 | `ZAYA_ENABLE_REASONING` | `1` | Enables reasoning parser flags |
 | `ZAYA_REASONING_PARSER` | `qwen3` | Parser used for `reasoning_content` |
 | `ZAYA_CHAT_TEMPLATE` | unset | Optional custom/tool-use chat template |
