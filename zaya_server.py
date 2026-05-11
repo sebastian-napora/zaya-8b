@@ -16,6 +16,9 @@ import os
 import logging
 import traceback
 import inspect
+import json
+import re
+import uuid
 from logging.handlers import RotatingFileHandler
 
 from zaya_logging import configure_logging, log_torch_cuda
@@ -69,6 +72,192 @@ def _get_tool_parser_class(parser_name):
         return None
 
 
+ZYPHRA_TOOL_CALL_RE = re.compile(
+    r"<zyphra_tool_call>\s*<function=([^>\s]+)>(.*?)</function>\s*</zyphra_tool_call>",
+    re.DOTALL,
+)
+ZYPHRA_TOOL_PARAM_RE = re.compile(
+    r"<parameter=([^>\s]+)>(.*?)</parameter>",
+    re.DOTALL,
+)
+
+
+def _parse_tool_scalar(value):
+    text = value.strip()
+    if not text:
+        return ""
+
+    if text.lower() in {"true", "false"}:
+        return text.lower() == "true"
+    if text.lower() == "null":
+        return None
+
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    try:
+        if re.fullmatch(r"[-+]?\d+", text):
+            return int(text)
+        if re.fullmatch(r"[-+]?(?:\d+\.\d*|\d*\.\d+)", text):
+            return float(text)
+    except Exception:
+        pass
+
+    return text
+
+
+def _extract_zyphra_tool_calls(text):
+    if not isinstance(text, str) or "<zyphra_tool_call>" not in text:
+        return [], text
+
+    tool_calls = []
+    for match in ZYPHRA_TOOL_CALL_RE.finditer(text):
+        name = match.group(1).strip()
+        body = match.group(2)
+        arguments = {
+            param.group(1).strip(): _parse_tool_scalar(param.group(2))
+            for param in ZYPHRA_TOOL_PARAM_RE.finditer(body)
+        }
+        if name:
+            tool_calls.append({"name": name, "arguments": arguments})
+
+    if not tool_calls:
+        return [], text
+
+    return tool_calls, None
+
+
+def _openai_tool_call_dict(tool_call):
+    return {
+        "id": f"call_{uuid.uuid4().hex[:24]}",
+        "type": "function",
+        "function": {
+            "name": tool_call["name"],
+            "arguments": json.dumps(tool_call["arguments"], ensure_ascii=False),
+        },
+    }
+
+
+def _make_vllm_tool_call(tool_call):
+    payload = _openai_tool_call_dict(tool_call)
+    try:
+        from vllm.entrypoints.openai.protocol import FunctionCall, ToolCall
+
+        function = FunctionCall(
+            name=payload["function"]["name"],
+            arguments=payload["function"]["arguments"],
+        )
+        try:
+            return ToolCall(
+                id=payload["id"],
+                type="function",
+                function=function,
+            )
+        except TypeError:
+            return ToolCall(
+                type="function",
+                function=function,
+            )
+    except Exception:
+        try:
+            from vllm.entrypoints.openai.protocol import ChatCompletionMessageToolCall, FunctionCall
+
+            return ChatCompletionMessageToolCall(
+                id=payload["id"],
+                type="function",
+                function=FunctionCall(
+                    name=payload["function"]["name"],
+                    arguments=payload["function"]["arguments"],
+                ),
+            )
+        except Exception:
+            return payload
+
+
+def _get_obj_field(obj, name, default=None):
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _set_obj_field(obj, name, value):
+    if isinstance(obj, dict):
+        obj[name] = value
+        return True
+    try:
+        setattr(obj, name, value)
+        return True
+    except Exception:
+        try:
+            object.__setattr__(obj, name, value)
+            return True
+        except Exception:
+            logger.exception("Unable to set response field %s on %s", name, type(obj).__name__)
+            return False
+
+
+def _recover_leaked_tool_calls_in_response(response):
+    choices = _get_obj_field(response, "choices", None)
+    if not choices:
+        return False
+
+    recovered = 0
+    for choice in choices:
+        message = _get_obj_field(choice, "message", None)
+        if message is None:
+            continue
+        content = _get_obj_field(message, "content", None)
+        tool_calls, _ = _extract_zyphra_tool_calls(content)
+        if not tool_calls:
+            continue
+
+        _set_obj_field(message, "content", None)
+        _set_obj_field(message, "tool_calls", [_make_vllm_tool_call(call) for call in tool_calls])
+        _set_obj_field(choice, "finish_reason", "tool_calls")
+        recovered += len(tool_calls)
+
+    if recovered:
+        logger.warning("Recovered %d leaked ZAYA XML tool call(s) from final response", recovered)
+        return True
+    return False
+
+
+def _patch_zyphra_tool_extraction(parser_cls):
+    if getattr(parser_cls, "_zaya_xml_recovery_patch", False):
+        return
+    if not hasattr(parser_cls, "extract_tool_calls"):
+        logger.warning("zaya_xml parser has no extract_tool_calls method; XML recovery patch skipped")
+        return
+
+    original_extract = parser_cls.extract_tool_calls
+
+    def patched_extract_tool_calls(self, model_output, request):
+        tool_calls, content = _extract_zyphra_tool_calls(model_output)
+        if tool_calls:
+            try:
+                from vllm.entrypoints.openai.protocol import ExtractedToolCallInformation
+
+                logger.warning(
+                    "Recovered %d leaked ZAYA XML tool call(s) from model output",
+                    len(tool_calls),
+                )
+                return ExtractedToolCallInformation(
+                    tools_called=True,
+                    tool_calls=[_make_vllm_tool_call(call) for call in tool_calls],
+                    content=content,
+                )
+            except Exception:
+                logger.exception("Failed to build vLLM tool-call response from leaked ZAYA XML")
+
+        return original_extract(self, model_output, request)
+
+    parser_cls.extract_tool_calls = patched_extract_tool_calls
+    parser_cls._zaya_xml_recovery_patch = True
+    logger.warning("Patched zaya_xml parser to recover leaked <zyphra_tool_call> blocks")
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 def _patch_zaya_xml_tool_parser():
     """Adapt vLLM's ZAYA tool parser to newer parser constructor calls."""
@@ -76,6 +265,7 @@ def _patch_zaya_xml_tool_parser():
         parser_cls = _get_tool_parser_class("zaya_xml")
         if parser_cls is None:
             return False
+        _patch_zyphra_tool_extraction(parser_cls)
         init_sig = inspect.signature(parser_cls.__init__)
         accepts_varargs = any(
             p.kind == inspect.Parameter.VAR_POSITIONAL
@@ -156,6 +346,8 @@ local fix or ask one short clarifying question.
 Use private reasoning to choose the right next action, but keep that reasoning
 scoped to the latest request and the files directly involved.
 Use tools when they help, but do not narrate a long tool-use plan before acting.
+When using a tool, emit the tool call only; do not include explanatory prose
+before or after the tool call.
 In user-facing replies, provide concise rationale, concrete changes, and test
 results. Do not expose private chain-of-thought or lengthy hidden reasoning."""
 
@@ -464,6 +656,11 @@ async def main():
 
                 try:
                     result = await original_create(request, raw_request, **kwargs)
+                    recovered = _recover_leaked_tool_calls_in_response(result)
+                    if request.stream and not recovered:
+                        vllm_logger.debug(
+                            "Streaming response returned; leaked XML tool-call recovery is handled by parser hook only"
+                        )
                     vllm_logger.info("Request completed successfully")
                     return result
                 except Exception as e:
