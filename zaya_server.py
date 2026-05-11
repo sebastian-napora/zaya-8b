@@ -72,7 +72,7 @@ async def main():
 
     # ── Env-configurable knobs ──────────────────────────────────────────────
     MAX_MODEL_LEN = os.environ.get("VLLM_MAX_MODEL_LEN", "131072")
-    GPU_MEM_UTIL  = os.environ.get("VLLM_GPU_MEM_UTIL",  "0.50")
+    GPU_MEM_UTIL  = os.environ.get("VLLM_GPU_MEM_UTIL",  "0.30")
     OPT_LEVEL     = os.environ.get("VLLM_OPT_LEVEL",      "1")
     MODEL_NAME    = os.environ.get("ZAYA_MODEL",          "Zyphra/ZAYA1-8B")
     logger.info(
