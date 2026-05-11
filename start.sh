@@ -40,6 +40,8 @@ ZAYA_ENABLE_AUTO_TOOL_CHOICE="${ZAYA_ENABLE_AUTO_TOOL_CHOICE:-1}"
 export ZAYA_ENABLE_AUTO_TOOL_CHOICE
 ZAYA_TOOL_CALL_PARSER="${ZAYA_TOOL_CALL_PARSER:-zaya_xml}"
 export ZAYA_TOOL_CALL_PARSER
+ZAYA_MAX_TOOLS="${ZAYA_MAX_TOOLS:-20}"
+export ZAYA_MAX_TOOLS
 ZAYA_ENABLE_REASONING="${ZAYA_ENABLE_REASONING:-1}"
 export ZAYA_ENABLE_REASONING
 ZAYA_REASONING_PARSER="${ZAYA_REASONING_PARSER:-qwen3}"
@@ -84,6 +86,7 @@ start_backend() {
     echo "   Block flash-attn import: $ZAYA_BLOCK_FLASH_ATTN"
     echo "   Auto tool choice: $ZAYA_ENABLE_AUTO_TOOL_CHOICE"
     echo "   Tool call parser: ${ZAYA_TOOL_CALL_PARSER:-disabled}"
+    echo "   Max tools/req:    $ZAYA_MAX_TOOLS (ZAYA_MAX_TOOLS; 0=unlimited)"
     echo "   Reasoning parser: $([ "$ZAYA_ENABLE_REASONING" = "1" ] && echo "${ZAYA_REASONING_PARSER:-disabled}" || echo "disabled")"
     echo "   Thinking budget:  $([ "$ZAYA_ENABLE_REASONING" = "1" ] && echo "${ZAYA_THINKING_BUDGET} tokens (0=unlimited)" || echo "n/a")"
     echo "   Chat template: ${ZAYA_CHAT_TEMPLATE:-model default}"

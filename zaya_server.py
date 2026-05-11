@@ -688,13 +688,34 @@ async def main():
             original_create = serving_chat.create_chat_completion
 
             async def logged_create_chat_completion(request: ChatCompletionRequest, raw_request: Request = None, **kwargs):
+                import time as _time
+                req_id = uuid.uuid4().hex[:8]
+                t_start = _time.monotonic()
+
                 guard_applied = _apply_behavior_guard(request)
-                vllm_logger.info("=" * 80)
-                vllm_logger.info("/v1/chat/completions request received")
-                vllm_logger.info("Model: %s", request.model)
-                vllm_logger.info("Stream: %s", request.stream)
-                vllm_logger.info("Behavior guard: %s", "applied" if guard_applied else ("enabled" if BEHAVIOR_GUARD_ENABLED else "disabled"))
-                vllm_logger.info("Message count: %d", len(request.messages))
+
+                # ── Tool count cap ──────────────────────────────────────────────────
+                MAX_TOOLS = int(os.environ.get("ZAYA_MAX_TOOLS", "20"))
+                tools = _get_obj_field(request, "tools", None)
+                tool_count = len(tools) if tools else 0
+                if tools and tool_count > MAX_TOOLS:
+                    try:
+                        _set_obj_field(request, "tools", tools[:MAX_TOOLS])
+                        vllm_logger.warning(
+                            "[%s] Trimmed tools %d→%d (ZAYA_MAX_TOOLS=%d); "
+                            "too many tools cause empty responses",
+                            req_id, tool_count, MAX_TOOLS, MAX_TOOLS,
+                        )
+                        tool_count = MAX_TOOLS
+                    except Exception:
+                        pass
+
+                # ── START marker ────────────────────────────────────────────────────
+                vllm_logger.info("━━━ REQUEST START [%s] ━━━", req_id)
+                vllm_logger.info("Model: %s  stream=%s  msgs=%d  tools=%d  guard=%s",
+                    request.model, request.stream, len(request.messages), tool_count,
+                    "applied" if guard_applied else ("on" if BEHAVIOR_GUARD_ENABLED else "off"),
+                )
 
                 for i, msg in enumerate(request.messages):
                     if isinstance(msg, dict):
@@ -732,8 +753,6 @@ async def main():
                 if hasattr(request, "extra_body") and request.extra_body:
                     vllm_logger.info("Extra body: %s", request.extra_body)
 
-                vllm_logger.info("=" * 80)
-
                 if ENABLE_REASONING:
                     injected = _inject_thinking_from_history(request)
                     if injected:
@@ -761,10 +780,12 @@ async def main():
                                 "Preserved reasoning_content in content for %d choice(s) (multi-turn continuity)",
                                 preserved,
                             )
-                    vllm_logger.info("Request completed successfully")
+                    latency_ms = (_time.monotonic() - t_start) * 1000
+                    vllm_logger.info("━━━ REQUEST STOP  [%s] latency=%.0fms status=ok ━━━", req_id, latency_ms)
                     return result
                 except Exception as e:
-                    vllm_logger.error("Request failed: %s", str(e))
+                    latency_ms = (_time.monotonic() - t_start) * 1000
+                    vllm_logger.error("━━━ REQUEST STOP  [%s] latency=%.0fms status=error: %s ━━━", req_id, latency_ms, e)
                     vllm_logger.error(traceback.format_exc())
                     raise
 
