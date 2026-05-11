@@ -32,6 +32,8 @@ GitHub Copilot (VS Code) -> LiteLLM (11111) -> vLLM (11112)
 ```bash
 ./start.sh both
 ```
+Service logs are written under `logs/`, especially `logs/vllm_backend.log`
+for model-load failures.
 
 ### SGLang backend (EAGLE speculative decoding)
 ```bash
@@ -66,6 +68,12 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 python zaya_server.py        # terminal 1
 python server_compress.py   # terminal 2
+```
+
+The detached helpers can also be run directly:
+```bash
+./start_vllm.py
+./start_litellm.py
 ```
 
 ## API Endpoints

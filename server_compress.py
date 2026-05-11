@@ -27,6 +27,8 @@ zaya_token_tracker.register()
 # Setup detailed logging
 LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
+LOG_LEVEL = os.environ.get("ZAYA_LOG_LEVEL", "INFO").upper()
+LOG_LEVEL_VALUE = getattr(logging, LOG_LEVEL, logging.INFO)
 
 # Create dedicated logger for image requests
 litellm_logger = logging.getLogger("litellm.image_request")
@@ -38,19 +40,19 @@ litellm_logger.addHandler(fh)
 
 # Also log to console
 ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
+ch.setLevel(LOG_LEVEL_VALUE)
 ch.setFormatter(logging.Formatter("%(asctime)s %(name)-25s %(levelname)-8s %(message)s"))
 litellm_logger.addHandler(ch)
 
 litellm_logger.info("=" * 60)
 litellm_logger.info("LiteLLM ZAYA1-8B Proxy Started")
 
-# Enable litellm verbose mode for debugging
-os.environ["LITELLM_LOG"] = "DEBUG"
+# Enable request logging without defaulting to noisy debug output.
+os.environ.setdefault("LITELLM_LOG", LOG_LEVEL)
 os.environ["LITELLM_REQUEST_LOGGING"] = "true"
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=LOG_LEVEL_VALUE,
     format="%(asctime)s %(name)-25s %(levelname)-8s %(message)s",
     handlers=[
         logging.FileHandler(os.path.join(LOG_DIR, "litellm_detailed.log")),
@@ -58,9 +60,9 @@ logging.basicConfig(
     ]
 )
 
-# Get the litellm logger and set to DEBUG
+# Keep LiteLLM console logging at the configured level.
 litellm_main_logger = logging.getLogger("litellm")
-litellm_main_logger.setLevel(logging.DEBUG)
+litellm_main_logger.setLevel(LOG_LEVEL_VALUE)
 
 logger = logging.getLogger("server_compress")
 
@@ -93,5 +95,5 @@ if __name__ == "__main__":
         host=LITELLM_HOST,
         port=int(LITELLM_PORT),
         reload=False,
-        log_level="debug",
+        log_level=LOG_LEVEL.lower(),
     )

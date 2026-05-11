@@ -19,9 +19,6 @@ import traceback
 # Allow long max_model_len
 os.environ["VLLM_ALLOW_LONG_MAX_MODEL_LEN"] = "1"
 
-# Enable VLLM request logging
-os.environ["VLLM_WORKER_LOGGING_LEVEL"] = "DEBUG"
-
 # Setup logging
 LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -82,7 +79,6 @@ async def main():
         "--enable-auto-tool-choice",
         "--tool-call-parser", "zaya_xml",
         "--reasoning-parser", "qwen3",
-        "--enable-prefix-caching",
     ]
 
     # ── Speculative decoding (N-gram / Prompt Lookup) ───────────────────────

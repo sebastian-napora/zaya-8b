@@ -30,12 +30,13 @@ mkdir -p logs
 
 start_backend() {
     echo "🚀 Starting vLLM backend (port 11112)..."
-    $VENV_PYTHON zaya_server.py &
+    "$VENV_PYTHON" zaya_server.py > "$SCRIPT_DIR/logs/vllm_backend.log" 2>&1 &
     echo "Backend PID: $!"
+    echo "   Logs: $SCRIPT_DIR/logs/vllm_backend.log"
 }
 
 new_token_session() {
-    NEW_SID=$($VENV_PYTHON -c "
+    NEW_SID=$("$VENV_PYTHON" -c "
 import sys; sys.path.insert(0, '$SCRIPT_DIR')
 import zaya_token_tracker
 sid = zaya_token_tracker.new_session()
@@ -46,14 +47,16 @@ print(sid, end='')
 
 start_stats() {
     echo "🚀 Starting token stats server (port 11113)..."
-    $VENV_PYTHON "$SCRIPT_DIR/zaya_token_tracker.py" &
+    "$VENV_PYTHON" "$SCRIPT_DIR/zaya_token_tracker.py" > "$SCRIPT_DIR/logs/token_stats.log" 2>&1 &
     echo "Stats PID: $!"
+    echo "   Logs: $SCRIPT_DIR/logs/token_stats.log"
 }
 
 start_proxy() {
     echo "🚀 Starting LiteLLM proxy (port 11111)..."
-    $VENV_PYTHON server_compress.py &
+    "$VENV_PYTHON" server_compress.py > "$SCRIPT_DIR/logs/lite_llm.log" 2>&1 &
     echo "Proxy PID: $!"
+    echo "   Logs: $SCRIPT_DIR/logs/lite_llm.log"
 }
 
 case "${1:-both}" in
