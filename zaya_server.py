@@ -21,6 +21,9 @@ from zaya_logging import configure_logging, log_torch_cuda
 
 # Allow long max_model_len
 os.environ["VLLM_ALLOW_LONG_MAX_MODEL_LEN"] = "1"
+# Avoid accidentally selecting a flash-attn wheel compiled for the wrong GPU
+# architecture. Override with ZAYA_VLLM_ATTENTION_BACKEND if needed.
+os.environ.setdefault("VLLM_ATTENTION_BACKEND", os.environ.get("ZAYA_VLLM_ATTENTION_BACKEND", "FLASHINFER"))
 
 # Setup logging
 logger = configure_logging("zaya_vllm", "vllm_detailed.log")
@@ -75,12 +78,14 @@ async def main():
     GPU_MEM_UTIL  = os.environ.get("VLLM_GPU_MEM_UTIL",  "0.30")
     OPT_LEVEL     = os.environ.get("VLLM_OPT_LEVEL",      "1")
     MODEL_NAME    = os.environ.get("ZAYA_MODEL",          "Zyphra/ZAYA1-8B")
+    ATTENTION_BACKEND = os.environ.get("VLLM_ATTENTION_BACKEND", "auto")
     logger.info(
-        "Resolved backend config model=%s max_model_len=%s gpu_memory_utilization=%s optimization_level=%s",
+        "Resolved backend config model=%s max_model_len=%s gpu_memory_utilization=%s optimization_level=%s attention_backend=%s",
         MODEL_NAME,
         MAX_MODEL_LEN,
         GPU_MEM_UTIL,
         OPT_LEVEL,
+        ATTENTION_BACKEND,
     )
 
     argv = [

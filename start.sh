@@ -31,6 +31,8 @@ STREAM_LOGS="${ZAYA_STREAM_LOGS:-1}"
 BACKEND_HEALTH_URL="${ZAYA_BACKEND_HEALTH_URL:-http://localhost:11112/health}"
 BACKEND_WAIT_TIMEOUT="${ZAYA_BACKEND_WAIT_TIMEOUT:-900}"
 BACKEND_WAIT_INTERVAL="${ZAYA_BACKEND_WAIT_INTERVAL:-5}"
+ZAYA_VLLM_ATTENTION_BACKEND="${ZAYA_VLLM_ATTENTION_BACKEND:-FLASHINFER}"
+export ZAYA_VLLM_ATTENTION_BACKEND
 SERVICE_PID=""
 
 start_service() {
@@ -53,6 +55,7 @@ start_service() {
 
 start_backend() {
     echo "🚀 Starting vLLM backend (port 11112)..."
+    echo "   Attention backend: $ZAYA_VLLM_ATTENTION_BACKEND"
     start_service "Backend" "$SCRIPT_DIR/logs/vllm_backend.log" "$VENV_PYTHON" zaya_server.py
     BACKEND_PID="$SERVICE_PID"
 }

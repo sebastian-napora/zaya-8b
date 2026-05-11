@@ -68,6 +68,15 @@ Useful log files:
 Set `ZAYA_LOG_LEVEL=INFO` for quieter logs, or leave the default `DEBUG`
 while diagnosing startup and model-load issues.
 
+If startup prints `FATAL: FlashAttention requires building with sm version...`,
+the installed `flash-attn` wheel was built for the wrong GPU architecture.
+The vLLM backend defaults to `ZAYA_VLLM_ATTENTION_BACKEND=FLASHINFER` to avoid
+that package. Try another backend without editing code:
+
+```bash
+ZAYA_VLLM_ATTENTION_BACKEND=TRITON_ATTN ./start.sh both
+```
+
 ### SGLang backend (EAGLE speculative decoding)
 ```bash
 ./start_sglang.sh both
